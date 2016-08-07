@@ -1,0 +1,279 @@
+---
+title: "Titanic Analysis"
+author: "John Von Dollen"
+date: "July 26, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+This is a brief analysis of the Titanic Survival dataset from the Kaggle website (<https://www.kaggle.com/c/titanic>). In it we will first look at the data as is, then try some feature engineering, and finally try to predict if the outcome of passengers given a set of features about each one of them. 
+
+First, I looked at whether we can use the title as a feature. There are multiple titles that are similar (Mrs, Ms, MMe, Lady, etc), so I tried looking at what happens when we consolidate these categories. I also considered that the title may be specific to an age category as well (Sir primarily older passengers vs Master is for primarily younger passengers). I estimated the ages of the missing ages for passengers by using the average age for the people with that title. 
+
+## A Look at the Data
+
+```{r titanic}
+suppressMessages(library(ggplot2))
+suppressMessages(library(caret))
+suppressMessages(library(pROC))
+suppressMessages(library(glmnet))
+
+setwd("~/Desktop/kaggle/titanic/")
+
+train.raw <- read.csv('train.csv', stringsAsFactors = F)
+test.raw <- read.csv('test.csv', stringsAsFactors = F)
+
+str(train.raw)
+```
+The first glimpse of the features show the data contains both numeric and categorical data. Some of the categorical data seems to contain information that would be useful for feature creation, such as the passenger's title. We will come back to this. 
+
+First let's look at some visual representations of the data:
+
+
+
+
+
+```{r first_plots}
+# Quick single feature plots
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+barplot(table(train.raw$Survived),
+        names.arg = c("Perished", "Survived"),
+        main="Survived (passenger fate)", col="black")
+barplot(table(train.raw$Pclass), 
+        names.arg = c("first", "second", "third"),
+        main="Pclass (passenger traveling class)", col="firebrick")
+barplot(table(train.raw$Sex), main="Sex (gender)", col="darkviolet")
+hist(train.raw$Age, main="Age", xlab = NULL, col="brown")
+```
+
+Based on the the training data, we can estimate the roughly two thirds of the passengers perished. A perhaps overly simplistic description of the average passenger is an early to mid twenty year old male in third class.
+
+
+
+```{r second_plots}
+barplot(table(train.raw$SibSp), main="SibSp (siblings + spouse aboard)", 
+        col="darkblue")
+barplot(table(train.raw$Parch), main="Parch (parents + kids aboard)", 
+        col="gray50")
+```
+
+It is interesting to note here that some children traveled with out family (nany) so had a *Parch* value of 0, and that extended family members (cousins, nieces, etc) were not included in the data. 
+
+
+```{r third_plots}
+hist(train.raw$Fare, main="Fare (fee paid for ticket[s])", xlab = NULL, 
+     col="darkgreen")
+barplot(table(train.raw$Embarked), 
+        names.arg = c("NA","Cherbourg", "Queenstown", "Southampton"),
+        main="Embarked (port of embarkation)", col="sienna")
+```
+
+Now for some plots combining a feature vs. the survival of the passengers.
+
+```{r combo_plots}
+# Feature plots vs survival
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Compare passenger class with whether they survived
+ggplot(train.raw, aes( as.factor(Pclass), fill = as.logical(Survived))) + geom_bar(position="fill") +
+  labs(x="Passenger Class", y="Number of Passengers", fill = "Survived")
+
+# Compare passenger sex with whether they survived
+ggplot(train.raw, aes( as.factor(Sex), fill = as.logical(Survived))) + geom_bar(position="fill") +
+  labs(x="Passenger's Sex", y="Number of Passengers", fill = "Survived")
+
+# Compare passengers with Siblings and Spouses and whether they survived
+ggplot(train.raw, aes( as.factor(SibSp), fill = as.logical(Survived))) + geom_bar(position="fill") +
+  labs(x="Passenger Siblings + Spouse", y="Number of Passengers", fill = "Survived")
+```
+One obvious observation is that most of the survivors were upperclass females. 
+
+It is also interesting to note that larger families tended to have a lower survival rate than passengers with a *Siblings + Spouse* score. Given the missing age data, it is difficult to draw concusions on the survival of children, but this is a potential area of feature enhancement.
+
+
+```{r combo_plots2}
+# Compare passenger listed as parents + kids and whether they survived
+ggplot(train.raw, aes( as.factor(Parch), fill = as.logical(Survived))) + geom_bar(position="fill") +
+  labs(x="Passenger Parents and Kids aboard", y="Number of Passengers", fill = "Survived")
+
+# Compare where passenger enbarked and whether they survived
+ggplot(train.raw, aes( as.factor(Embarked), fill = as.logical(Survived))) + geom_bar(position="fill") +
+  labs(x="Where Passenger Embarked", y="Number of Passengers", fill = "Survived")
+
+```
+
+
+
+## Feature Engineering
+There are a couple of features that can be created right away based on the data. The first one is separating the title from the names of the passengers. After a couple of test fittings of a model, the way I was binning the titles was actually giving worse results, so I stuck with the basic, given titles. The reason behind my interest here is whether women and children really were given priority seating on the life boats.
+
+Another feature created was the cabin level for the passengers. I would think that passengers in the lower levels would have a more difficult time escaping due to proximity of the exits, so I thought this would be important. This is a variable consisiting of the leading character of the "Cabin" feature. There were many passengers without a listed cabin location, but these were left blank. It is possible that we could try using the other features to help us guess the cabin level of the missing values, but I didn't get to that here.
+
+Other missing values that seemed important were the Ages. The interest here is to test if children realy were given priority since it seems that there is a lack of youthful ages listed. I took a simple approach and used the average age for the group of passengers with matching title to fill in missing values. Another approach to this is to use some of the other features besides title (SibSp, Parch, etc) to train a model on the passengers with known ages, and then predicting the missing ages. I didn't get this far, but I think this would yield better results.
+
+```{R feature_engineering}
+engineerFeatures <- function(dat, response){
+  # Look at titles of each passenger
+  dat$title <- gsub("(^.*, )([A-Za-z]+)(\\. .*)","\\2",dat$Name)
+  
+  # Fill in NA's in age with the average age of those with the same title
+  title.ages <- aggregate(Age~title, dat, mean, na.rm=T)
+  dat <- merge(dat, title.ages, by="title", all.x=T)
+  dat$Age.x[which(is.na(dat$Age.x))] = dat$Age.y[which(is.na(dat$Age.x))]
+  dat$Age.y = NULL
+  names(dat)[grep("Age.x",names(dat))] = "Age"
+  
+  # get cabin level
+  dat$cabin_level <- gsub("(^[A-Za-z]{1})(.*$)", "\\1", dat$Cabin)
+  
+  # setting everything that needs to be a factor as a factor
+  dat$Name <- as.factor(dat$Name)
+  dat$Sex <- as.factor(dat$Sex)
+  dat$Ticket <- as.factor(dat$Ticket)
+  dat$Cabin <- as.factor(dat$Cabin)
+  dat$Embarked <- as.factor(dat$Embarked)
+  dat$title <- as.factor(dat$title)
+  dat$cabin_level <- as.factor(dat$cabin_level)
+  
+  if(response==TRUE){
+    dat <- dat[,c('Pclass', 'Age', 'Sex', 'title', "cabin_level",'Embarked', 'Survived')]
+  }else{
+    dat <- dat[,c('PassengerId','Pclass', 'Age', 'Sex', 'title', "cabin_level",'Embarked')]
+  }
+  
+  titanicDummy <- dummyVars("~.",data=dat, fullRank=F)
+  dat <- as.data.frame(predict(titanicDummy,dat))
+  
+  return(dat)
+}
+```
+
+
+## Modeling
+Starting off, I decided to use a gradient boosting model (GMB) because of it's adaptability and generally decent success with diverse sets. The script used to generate this model is attached seperately. Since Kaggle limits the number of submissions per day (10), I decided to split up the training data into it's own "training" and "testing" sets. I used 75% of the data to train with, and the rest to test. Using the GBM model in the Caret package, I used 3 fold cross validation and an ROC curve as my training metric of success.
+
+```{R gbm_controls}
+# set gbm controls
+ctrl1 <- trainControl(method='repeatedcv', 
+                      number=3, 
+                      preProcOptions = list(thresh = 0.95),
+                      returnResamp='none', 
+                      summaryFunction = twoClassSummary, 
+                      classProbs = TRUE)
+```
+
+For my first modeling attempt at this set involved using only the variables given with the original set. It was immediately clear that there was room for improvement, and that the engineered features would probably make a difference in the results. I then adjusted the model to use engineered features (title, cabin_level) without dealing with the NA values in Age, and boosted my score to ~0.72 (6th percentile). This put me at a decent starting position with lots of room for improvement. 
+
+
+
+```{R data_prep, echo=F}
+# process data and create new features
+train.raw <- engineerFeatures(dat=train.raw, response=T)
+test.raw <- engineerFeatures(dat=test.raw, response=F)
+
+# There may be differences between what's found in the training set vs the test set
+missing_columns <- setdiff(names(train.raw), names(test.raw))
+missing_columns <- missing_columns[-grep("Survived", missing_columns)]
+test.raw[,missing_columns] <- NA
+
+
+# split training data so we can have an in-house metric before submitting
+idx <- sample(1:dim(train.raw)[1], floor(.75*dim(train.raw)[1]), replace=F)
+train.set <- train.raw[idx,]
+train.test <- train.raw[-idx,]
+
+# split up x and y for some models
+train.y <- as.factor(ifelse(train.set[,"Survived"]==1,"lived","died"))
+train.x <- train.set[,-grep("Survived", names(train.set))]
+```
+
+```{R gbm_model, results="hide"}
+# train gbm model (supressing warnings for legibility)
+gbm1 <- suppressWarnings(train(x=train.x, y=train.y, 
+              method='gbm', 
+              trControl=ctrl1,  
+              metric = "ROC",
+              preProc = c("center", "scale")) )
+```
+
+Next, I included the location of embarking, and imputed missing values for the Age feature as mentioned above. This gave me another increase to around 0.74. Up until now, I had just been using the same parameters for running the GBM, so I decided to try adjusting parameters for an optimal fit. This is quite easily done using the ```expand.Grid``` option in R: 
+
+```{R expandGrid, results="hide", echo=F}
+# using a parameter grid 
+set.seed(1852)
+
+# Play with parameters a bit
+gbmGrid <-  expand.grid(interaction.depth = c(1, 2, 3),
+                        n.trees = (0:50)*10, 
+                        shrinkage = seq(.0005, .05,.005),
+                        n.minobsinnode = 10)
+
+# train gbm model (supressing warnings for legibility)
+system.time(gbm1.grid2 <- suppressWarnings(train(x=train.x, y=train.y, 
+                                method='gbm', 
+                                trControl=ctrl1, 
+                                tuneGrid = gbmGrid,
+                                metric = "ROC",
+                                verbose=F,
+                                preProc = c("center", "scale")) )
+)
+```
+
+It's worth noting that I tried a much more expansive grid approach, but the resulting model performed more poorly than a much simple search. This suggests that there was some possible overfitting going on. The better model achieved a score of ~0.78 on Kaggle and an AUC on the test set of ~0.87. 
+
+
+## Final Remarks
+
+In practice, it is usually good to try different type of models (SVM, GLMnet, Logistic, etc), but given the time constraints, I decided to focus on the GBM. I think it would be helpful to try some of the other types of models. 
+Another area of improvement is spending more time on the feature engineering and handling of missing values. As mentioned above, I think there's room for improvement in predicting the missing values for Age and Cabin level, especially since they were some of the most influential features in the model:
+
+```{R gbm_summary}
+summary(gbm1.grid2)
+```
+
+Other potential features that may prove helpful include family size, whether one is married or not, if someone else in the family was reported as surviving, the family name, and fare to name a few. I plan to try some of these out in the near future.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
