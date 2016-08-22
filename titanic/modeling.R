@@ -3,25 +3,31 @@ library(caret)
 library(pROC)
 library(glmnet)
 
-train.raw <- read.csv('train.csv', stringsAsFactors = F)
-test.raw <- read.csv('test.csv', stringsAsFactors = F)
-
 
 ####################################################
 ###   BEGIN FUNCTIONS  ###
 ##########################
 
+# returns a 1 if anyone in the same family survived
+famSurvived <- function(x){
+  idx <- which(x$Survived==1)
+  # idx <- which(x$Survived==1 & x$fam_size >1)
+  fam_name <- unique(x$family_name[idx])
+  return(as.numeric(x$family_name %in% fam_name))
+}
+
+
 # Feature Engineering
 #~~~~~~~~~~~~~~~~~~~~
-engineerFeatures <- function(dat, response){
+engineerFeatures <- function(dat, response, dummy_vars=T){
   # Look at titles of each passenger
   dat$title <- gsub("(^.*, )([A-Za-z]+)(\\. .*)","\\2",dat$Name)
   # now rename everything to age appropriate titles
-#   titles <- data.frame( title=c("Mr","Mrs","Miss","Master","Don","Rev","Dr","Mme","Ms","Major","Lady","Sir","Mlle","Col","Capt","Dona"),
-#                         title2=c("Mr","Mrs","Miss","Master","Sir","Sir","Sir","Lady","Ms","Mr","Lady","Sir","Lady","Mr","Sir","Lady"), stringsAsFactors=F )
-#   dat <- merge(dat, titles, by="title")
-#   dat$title <- NULL
-#   names(dat)[grep("title2", names(dat))] <- "title"
+  titles <- data.frame( title=c("Mr","Mrs","Miss","Master","Don","Rev","Dr","Mme","Ms","Major","Lady","Sir","Mlle","Col","Capt","Dona"),
+                        title2=c("Mr","Mrs","Miss","Master","Sir","Sir","Sir","Lady","Ms","Mr","Lady","Sir","Lady","Mr","Sir","Lady"), stringsAsFactors=F )
+  dat <- merge(dat, titles, by="title")
+  dat$title <- NULL
+  names(dat)[grep("title2", names(dat))] <- "title"
   
   # Fill in NA's in age with the average age of those with the same title
   title.ages <- aggregate(Age~title, dat, mean, na.rm=T)
@@ -33,7 +39,14 @@ engineerFeatures <- function(dat, response){
   # get cabin level
   dat$cabin_level <- gsub("(^[A-Za-z]{1})(.*$)", "\\1", dat$Cabin)
   
+  # Get family size
+  dat$fam_size <- dat$SibSp + dat$Parch
   
+  # get family name    
+  dat$family_name = gsub(",.*","",dat$Name)
+  
+  # see if anyone with a matching last name survived            !!!!!!!!!!! could improve
+  dat$fam_survived <- famSurvived(dat)
   
   # setting everything that needs to be a factor as a factor
   dat$Name <- as.factor(dat$Name)
@@ -43,16 +56,19 @@ engineerFeatures <- function(dat, response){
   dat$Embarked <- as.factor(dat$Embarked)
   dat$title <- as.factor(dat$title)
   dat$cabin_level <- as.factor(dat$cabin_level)
+  dat$fam_size <- as.factor(dat$fam_size)
+  dat$family_name <- as.factor(dat$family_name)
   
   if(response==TRUE){
-    dat <- dat[,c('Pclass', 'Age', 'Sex', 'title', "cabin_level",'Embarked', 'Survived')]
+    dat <- dat[,c('Pclass', 'Age', 'Sex', 'title', "cabin_level",'Embarked', 'fam_size', 'family_name', 'fam_survived', 'Survived')]
   }else{
-    dat <- dat[,c('PassengerId','Pclass', 'Age', 'Sex', 'title', "cabin_level",'Embarked')]
+    dat <- dat[,c('PassengerId','Pclass', 'Age', 'Sex', 'title', "cabin_level",'Embarked', 'fam_size', 'family_name', 'fam_survived')]
   }
   
-  titanicDummy <- dummyVars("~.",data=dat, fullRank=F)
-  dat <- as.data.frame(predict(titanicDummy,dat))
-  
+  if(dummy_vars){
+    titanicDummy <- dummyVars("~.",data=dat, fullRank=F)
+    dat <- as.data.frame(predict(titanicDummy,dat))
+  }
   
   return(dat)
 }
@@ -71,22 +87,30 @@ makeSubmission <- function(test_data, pred_data){
 ##########################
 
 
+train.raw <- read.csv('../data/train.csv', stringsAsFactors = F)
+test.raw <- read.csv('../data/test.csv', stringsAsFactors = F)
 
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+###       GMB 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # process data and create new features
-train.raw <- engineerFeatures(dat=train.raw, response=T)
-test.raw <- engineerFeatures(dat=test.raw, response=F)
+train.set <- engineerFeatures(dat=train.raw, response=T)
+test.set <- engineerFeatures(dat=test.raw, response=F)
 
 # There may be differences between what's found in the training set vs the test set
-missing_columns <- setdiff(names(train.raw), names(test.raw))
+missing_columns <- setdiff(names(train.set), names(test.set))
 missing_columns <- missing_columns[-grep("Survived", missing_columns)]
-test.raw[,missing_columns] <- NA
+test.set[,missing_columns] <- NA
 
 
 # split training data so we can have an in-house metric before submitting
-idx <- sample(1:dim(train.raw)[1], floor(.75*dim(train.raw)[1]), replace=F)
-train.set <- train.raw[idx,]
-train.test <- train.raw[-idx,]
+idx <- sample(1:dim(train.set)[1], floor(.75*dim(train.set)[1]), replace=F)
+train.set <- train.set[idx,]
+train.test <- train.set[-idx,]
 
 # split up x and y for some models
 train.y <- as.factor(ifelse(train.set[,"Survived"]==1,"lived","died"))
@@ -130,10 +154,10 @@ print(auc$auc)  # <-  0.835
 
 
 # predict the outcome of the test set
-gbm1.pred <- predict(object=gbm1, test.raw[,-grep("PassengerId", names(test.raw))])
+gbm1.pred <- predict(object=gbm1, test.set[,-grep("PassengerId", names(test.set))])
 
 # write out a submission file
-write.table(makeSubmission(test_data=test.raw, pred_data=gbm1.pred), "submissions/gbm6.csv", row.names=F, quote=F, sep=",")
+write.table(makeSubmission(test_data=test.set, pred_data=gbm1.pred), "../data/submissions/gbm10_famInfo_factors.csv", row.names=F, quote=F, sep=",")
 
 
 
@@ -171,14 +195,15 @@ plot(varImp(gbm1.grid), top = 10)
 gbm1.pred <- predict(object=gbm1.grid, train.test, type='prob')
 # get the area under the curve
 auc <- roc(train.test$Survived, gbm1.pred[[2]])
-print(auc$auc)  # <- Area under the curve: 0.8727
+print(auc$auc)  # <- Area under the curve:  0.8598 <- w/fam
+                #                           0.8524 <- extra names
 
 
 # predict the outcome of the test set
-gbm1.pred <- predict(object=gbm1.grid, test.raw[,-grep("PassengerId", names(test.raw))])
+gbm1.pred <- predict(object=gbm1.grid, test.set[,-grep("PassengerId", names(test.set))])
 
 # write out a submission file
-write.table(makeSubmission(test_data=test.raw, pred_data=gbm1.pred), "submissions/gbm7.csv", row.names=F, quote=F, sep=",")
+write.table(makeSubmission(test_data=test.set, pred_data=gbm1.pred), "../data/submissions/gbm10_famInfo_grid1.csv", row.names=F, quote=F, sep=",")
 
 
 
@@ -211,21 +236,41 @@ plot(varImp(gbm1.grid2), top = 10)
 gbm1.pred2 <- predict(object=gbm1.grid2, train.test, type='prob')
 # get the area under the curve
 auc <- roc(train.test$Survived, gbm1.pred2[[2]])
-print(auc$auc)  # <- Area under the curve: 0.8796
+print(auc$auc)  # <- Area under the curve: 0.8813
 
 # predict the outcome of the test set
-gbm1.pred <- predict(object=gbm1.grid2, test.raw[,-grep("PassengerId", names(test.raw))])
+gbm1.pred <- predict(object=gbm1.grid2, test.set[,-grep("PassengerId", names(test.set))])
 
 # write out a submission file
-write.table(makeSubmission(test_data=test.raw, pred_data=gbm1.pred), "C:/github/kaggle/titanic/submissions/gbm5.csv", row.names=F, quote=F, sep=",")
-
+write.table(makeSubmission(test_data=test.set, pred_data=gbm1.pred), "../data/submissions/gbm8_bigger.csv", row.names=F, quote=F, sep=",")
+}
 
 #
 
 
 
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+###       RANDOM FOREST
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# process data and create new features
+train.set <- engineerFeatures(dat=train.raw, response=T, dummy_vars=F)
+test.set <- engineerFeatures(dat=test.raw, response=F, dummy_vars=F)
 
+# There may be differences between what's found in the training set vs the test set
+missing_columns <- setdiff(names(train.set), names(test.set))
+missing_columns <- missing_columns[-grep("Survived", missing_columns)]
+test.set[,missing_columns] <- NA
+
+
+# split training data so we can have an in-house metric before submitting
+idx <- sample(1:dim(train.set)[1], floor(.75*dim(train.set)[1]), replace=F)
+train.set <- train.set[idx,]
+train.test <- train.set[-idx,]
+
+# split up x and y for some models
+train.y <- as.factor(ifelse(train.set[,"Survived"]==1,"lived","died"))
+train.x <- train.set[,-grep("Survived", names(train.set))]
 
 
 

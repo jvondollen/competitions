@@ -1,0 +1,7 @@
+model_name	kaggle_score	auc	notes
+gbm8_fam	0.73	0.8598	uses new features: family name, size, and if a family member survived.
+gbm8_bigger	0.72249	0.8813	Same as gbm8, but uses a bigger grid to select parameters.
+gbm9_titles	0.76077	0.8524	this one uses the same as gmb8, but also includes a consolidation of titles for the people.
+gbm10_famInfo	0.63636	0.99	probbaly overfitting based on family name
+gbm10_famInfo_grid1	0.62679	0.993	probbaly overfitting based on family name
+gmb10_famInfo_factors	0.64593	0.9986	this time with factors for family_size and Family_name
