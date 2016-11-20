@@ -1,0 +1,43 @@
+---
+title: "Summary"
+author: "John Von Dollen"
+date: "November 11, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(data.table)
+library(ggplot2)
+
+
+dat <- fread("c:/github/kaggle/allstate/data/train.csv")
+```
+
+```{r histograms}
+# print the histogram of each of the "cat" variables
+for(i in grep("cat", names(dat))){
+  p <- ggplot(dat, aes_string(x=names(dat)[i])) + geom_bar()
+  print(p)
+}
+```
+
+```{r densities}
+# print the densities of each of the "cont" variables
+for(i in grep("cont", names(dat))){
+  p <- ggplot(dat, aes_string(x=names(dat)[i])) + geom_density()
+  print(p)
+}
+
+
+```
+
