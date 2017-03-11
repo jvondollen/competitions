@@ -1,4 +1,7 @@
 library(ggplot2)
+library(pROC)
+library(caret)
+
 
 x <- x.original <-  read.delim('data.txt', stringsAsFactors=F)
 
@@ -14,14 +17,8 @@ heatmap(x.cor)
 
 
 
-
-
-
-
-
-
-
-idx <- sample(1:dim(x)[1], ceiling(.25*dim(x)[1]))
+# sort out training and testing sets
+idx <- sample(1:dim(x)[1], ceiling(.1*dim(x)[1]))
 x.test <- x[-idx,-2]
 y.test <- x[-idx,2]
 x.train <- x[idx,-2]
@@ -32,7 +29,9 @@ y.train <- x[idx,2]
 
 
 
-
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# XGBOOST
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 require(xgboost)
 
