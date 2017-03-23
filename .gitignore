@@ -1,0 +1,5 @@
+*.RData
+allstate/.Rhistory
+*.pper
+allstate/.Rproj.user/A808A028/rmd-outputs
+allstate/.Rproj.user/A808A028/saved_source_markers
