@@ -8,7 +8,7 @@
 # scores 1113.93 on public leaderboard when run with all features 
 # and an eta of 0.01. But to achieve that will need to be run
 # locally and edited as directed, due to time out from low eta in Kaggle kernels.
-
+ 
 library(data.table)
 library(Matrix)
 library(xgboost)
@@ -19,9 +19,9 @@ TARGET = 'loss'
 SEED = 0
 SHIFT = 200
 
-TRAIN_FILE = "c:/github/kaggle/allstate/data/train.csv"
-TEST_FILE = "c:/github/kaggle/allstate/data/test.csv"
-SUBMISSION_FILE = "c:/github/kaggle/allstate/submit/chippys.txt"
+TRAIN_FILE = "D:/kaggle/allstate/data/train.csv"
+TEST_FILE = "D:/kaggle/allstate/data/test.csv"
+SUBMISSION_FILE = "D:/kaggle/allstate/data/sample_submission.csv"
 
 
 train = fread(TRAIN_FILE, showProgress = TRUE)
@@ -45,20 +45,11 @@ for (f in features) {
   }
 }
 
-# in order to speed up fit within Kaggle scripts have removed 30
-# least important factors as identified from local run
-features_to_drop <- c("cat67","cat21","cat60","cat65", "cat32", "cat30",
-                      "cat24", "cat74", "cat85", "cat17", "cat14", "cat18",
-                      "cat59", "cat22", "cat63", "cat56", "cat58", "cat55",
-                      "cat33", "cat34", "cat46", "cat47", "cat48", "cat68",
-                      "cat35", "cat20", "cat69", "cat70", "cat15", "cat62")
 
-x_train = train_test[1:ntrain,-features_to_drop, with = FALSE]
-x_test = train_test[(ntrain+1):nrow(train_test),-features_to_drop, with = FALSE]
 
-## for 1113 local run comment out above and uncoment below
-#x_train = train_test[1:ntrain,]
-#x_test = train_test[(ntrain+1):nrow(train_test),]
+# for 1113 local run comment out above and uncoment below
+x_train = train_test[1:ntrain,]
+x_test = train_test[(ntrain+1):nrow(train_test),]
 
 
 dtrain = xgb.DMatrix(as.matrix(x_train), label=y_train)
@@ -79,6 +70,7 @@ xgb_params = list(
 )
 
 
+
 xg_eval_mae <- function (yhat, dtrain) {
   y = getinfo(dtrain, "label")
   err= mae(exp(y),exp(yhat) )
@@ -88,30 +80,75 @@ xg_eval_mae <- function (yhat, dtrain) {
 ##################################################################################
 # Commented out in order to run within Kaggle sript time restrictions
 # Uncoment and run locally to get best_nrounds of 2813 if used with eta = 0.01
-res = xgb.cv(xgb_params,
+res = xgb.train(xgb_params,
             dtrain,
-            nrounds=5000,
+            nrounds=1000,
             nfold=5,
             early_stopping_rounds=15,
             print_every_n = 10,
             verbose= 1,
             feval=xg_eval_mae,
             maximize=FALSE)
+  
 
-#best_nrounds = res$best_iteration # for xgboost v0.6 users
-best_nrounds = which.min(res$dt[, test.error.mean]) # for xgboost v0.4-4 users
 
-cv_mean = res$evaluation_log$test_error_mean[best_nrounds]
-cv_std = res$evaluation_log$test_error_std[best_nrounds]
+# Do some feature selection: use only features that contribute to the top 90% of the gain
+res.importance <- xgb.importance(names(x_train), model = res)
+res.importance <- res.importance[order(res.importance$Gain, decreasing=T),]
+res.importance$cumGain <- cumsum(res.importance$Gain)
+res.importance$cumFreq <- cumsum(res.importance$Frequence)
+idx <- which(res.importance$cumFreq > 0.99)
+
+
+# in order to speed up fit within Kaggle scripts have removed 30
+# least important factors as identified from local run
+# features_to_drop <- c("cat67","cat21","cat60","cat65", "cat32", "cat30",
+#                       "cat24", "cat74", "cat85", "cat17", "cat14", "cat18",
+#                       "cat59", "cat22", "cat63", "cat56", "cat58", "cat55",
+#                       "cat33", "cat34", "cat46", "cat47", "cat48", "cat68",
+#                       "cat35", "cat20", "cat69", "cat70", "cat15", "cat62")
+
+features_to_drop <- res.importance$Feature[idx]
+
+# update the train and test sets with selected variables now
+x_train = train_test[1:ntrain,-features_to_drop, with = FALSE]
+x_test = train_test[(ntrain+1):nrow(train_test),-features_to_drop, with = FALSE]
+
+
+# Now use the selected parameters to train the model with
+res = xgb.cv(xgb_params,
+             dtrain,
+             nrounds=3000,
+             nfold=5,
+             early_stopping_rounds=15,
+             print_every_n = 10,
+             verbose= 1,
+             feval=xg_eval_mae,
+             maximize=FALSE)
+
+
+
+
+
+# best_nrounds = res$best_iteration # for xgboost v0.6 users
+# best_nrounds = which.min(res$dt[, test.error.mean]) # for xgboost v0.4-4 users
+best_nrounds = which.min(res$test.error.mean)
+cat("Best rounds based on testing error: ", best_nrounds, '\n')
+
+# cv_mean = res$evaluation_log$test_error_mean[best_nrounds]
+# cv_std = res$evaluation_log$test_error_std[best_nrounds]
+cv_mean = res$test.error.mean[best_nrounds]
+cv_std = res$test.error.std[best_nrounds]
+
 cat(paste0('CV-Mean: ',cv_mean,' ', cv_std))
 ##################################################################################
 
 
 # established best _nrounds with eta=0.05 from a local cv run 
-best_nrounds = 545 # comment this out when doing local 1113 run
+# best_nrounds = 545 # comment this out when doing local 1113 run
 
 gbdt = xgb.train(xgb_params, dtrain, nrounds=as.integer(best_nrounds/0.8))
 
 submission = fread(SUBMISSION_FILE, colClasses = c("integer", "numeric"))
-submission$loss = exp(predict(gbdt,dtest)) - SHIFT
-write.csv(submission,'xgb_starter_v7.sub.csv',row.names = FALSE)
+submission$loss = exp(predict(gbdt, dtest)) - SHIFT
+write.csv(submission,'submit/chippy_freq99.txt',row.names = FALSE)
