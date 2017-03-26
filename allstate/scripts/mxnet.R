@@ -42,7 +42,7 @@ params <- list(
   momentum = 0.9,
   batch.size = 100,
   wd = 0,
-  num.round = 1000
+  num.round = 100
 )
 
 
@@ -76,11 +76,9 @@ params <- list(
   # Check out the MAE of the training sets
   pred_train <- predict(m, as.array(t(x_train_train)), array.layout = 'colmajor')
   MAE_train <- mean(abs(pred_train - x_train_y))
-  MAE_train
   
   pred <- predict(m, as.array(t(x_train_test)), array.layout = 'colmajor')  
   MAE_test <- mean(abs(pred - x_test_y))
-  MAE_test
   cat("MAE training:", MAE_train, ",\tMAE testing :", MAE_test, "\n")
   
   # return(list(model = m, MAE_test = MAE_test, MAE_train = MAE_train))
@@ -91,7 +89,7 @@ params <- list(
   pred <- predict(m, as.array(t(data.matrix(x_test))), array.layout = 'colmajor')
   submission = fread(SUBMISSION_FILE, colClasses = c("integer", "numeric"))
   submission$loss = exp(pred) - SHIFT
-  write.csv(submission,'submit/mxnet_1000init3l.txt',row.names = FALSE)
+  write.csv(submission,'submit/mxnet_100init3l.txt',row.names = FALSE)
   
   
   
