@@ -14,6 +14,8 @@ x$diagnosis = as.numeric(as.factor(x$diagnosis))-1
 x.cor = cor(x)
 heatmap(x.cor)
 
+# mask to binary. 0 = B, 1=M
+x$diagnosis <- as.numeric(as.factor(x$diagnosis))-1
 
 
 
@@ -23,6 +25,46 @@ x.test <- x[-idx,-2]
 y.test <- x[-idx,2]
 x.train <- x[idx,-2]
 y.train <- x[idx,2]
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Variable selection
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# ensure results are repeatable
+set.seed(7)
+# load the library
+library(mlbench)
+library(caret)
+
+# prepare training scheme
+control <- trainControl(method="repeatedcv", number=10, repeats=3)
+# train the model
+glm_model <- train(diagnosis~., data=x[-idx,], method="glm", preProcess="scale", trControl=control)
+# estimate variable importance
+importance <- varImp(glm_model, scale=FALSE)
+# summarize importance
+print(importance)
+# plot importance
+plot(importance)
+
+# find out which features are th emost important
+x.imp <- data.frame(importance=importance$importance, cumImp=cumsum(importance$importance), p_import=importance$importance/sum(importance$importance),stringsAsFactors = F)
+names(x.imp) = c('importance','cumImp','p_import')
+x.imp <- x.imp[order(x.imp$p_import, decreasing = T),]
+x.imp$cum_p_import <- cumsum(x.imp$p_import)
+# pic the features responsible for the majority of importance
+selected_features <- row.names(x.imp)[x.imp$cum_p_import<.9]
+
+
+glm.pred <- predict(glm_model, data.matrix(x.test))
+glm.auc <- roc(y.test, glm.pred)
+plot(glm.auc)
+
+
+
 
 
 
