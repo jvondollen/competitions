@@ -229,29 +229,55 @@ totalMAE <- rbind( totalMAE, data.frame(model="high_sig", rbind(model.err2x2, mo
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Adaboost
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+library(caret)
+
+caret.mae <- function(dat, lev=NULL, model=NULL){
+  return(c(MAE=mean(abs(dat$obs-dat$pred))) )
+}
+
+
 
 model.formula <- as.formula("total_cases~.")
 
-fitControl <- trainControl(## 10-fold CV
+fitControl <- trainControl(## X-fold CV
                             method = "repeatedcv",
                             number = 5,
                             ## repeated X times
-                            repeats = 5)
-modGrid <- expand.grid(interaction.depth = (1:5) * 2, n.trees = (1:10)*50, shrinkage = .1, n.minobsinnode=1)
+                            repeats = 5,
+                            summaryFunction = caret.mae,
+                            verboseIter = TRUE
+                            )
+tunegrid <- expand.grid(.mtry=c(5:15))
 
 
 set.seed(12345)
+library(doMC)
+registerDoMC(cores = 4)
 
 x.lab <- grep("total_cases", names(x.train) )
 # method ="rpart"
-system.time( gbmFit <- train(x.train[,-x.lab], x.train[,x.lab], method = "rpart", metric="MAE", trControl = fitControl, verbose = T, bag.fraction = 0.5, tuneGrid = modGrid) )
-gbmFit
+system.time( rfFit <- train(x.train[,-x.lab], x.train[,x.lab], method = "rf", metric="MAE", maximize=F, trControl = fitControl, verbose = T, bag.fraction = 0.5, tuneGrid = tunegrid, allowParallel=TRUE) )
+rfFit
+plot(rfFit)
+
+
+user  system elapsed 
+63.006   1.446  65.699 
+
+1) Not running in parallel. Fix it «««««««««««««
+2) 
 
 
 
-# all features 
-model.formula <- as.formula("total_cases~.")
-fit.ctree <- train(model.formula, data=x.train, method='ctree2', metric="MAE", tuneGrid=expand.grid(mincriterion=0.95, maxdepth=5))
+
+
+
+
+
+
+
+
+
 
 
 
