@@ -18,73 +18,25 @@ treating <- rbind(x.train, test.set)
 treating$month <- as.numeric( gsub("(^.*-)([0-9]+)(-.*$)","\\2", treating$week_start_date) )
 
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~
-# TREATE THE VARIABLES
-#~~~~~~~~~~~~~~~~~~~~~~~~~~
-ntrain <- dim(x.train)[1]
-features = names(treating)
-for (f in features) {
-  if (class(treating[[f]])=="factor") {
-    #cat("VARIABLE : ",f,"\n")
-    levels <- sort(unique(treating[[f]]))
-    treating[[f]] <- as.integer(factor(treating[[f]], levels=levels))
-  }
-}
-
-
-
-
-# separate the training and testing sets now that we've treated the values
-x.train <- treating[1:ntrain,]
-test.set <- treating[(ntrain+1):(nrow(treating)),]
-
-
-summary(x.train)
-
-
-# make some exploratory plots
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~
-par(mfrow = c(1, 2))
-for(i in 1:dim(x.train)[2]){
-  print(i)
-  if(class(x.train[,i])!='factor'){
-    plot(x.train[,i], main=names(x.train)[i])
-    hist(x.train[,i], main=names(x.train)[i])
-  }
-}
-
-
-
-# remove NA's in order to plot them
-idx = which(unlist(lapply(x.train, class)) != "factor")
-na.idx <- which(apply(x.train[,idx],1, function(y){return(any(is.na(y)))}))
-nona <- x.train[-na.idx,]
-tmp <- cor(nona[,idx])
-heatmap(tmp)
-
-
-
-
-
 #~~~~~~~~~~~~~
 # fillin NA's
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # reorder the columns a little
-idx <- grep('^city$|^year$|^weekofyear$|^week_start_date$|^month$', names(x.train))
-x.train <- x.train[,c(names(x.train)[idx], names(x.train)[-idx])]
+idx <- grep('^city$|^year$|^weekofyear$|^week_start_date$|^month$', names(treating))
+treating <- treating[,c(names(treating)[idx], names(treating)[-idx])]
 
 # aggregate the non NA feature values on the city, year, and month and use this median value
 #     as the NA values.
-na.pred = aggregate(.~city+month, data=x.train[-na.idx,], median)
+na.pred = aggregate(.~city+month, data=treating[-na.idx,], median)
 
 # Fill in na's for each feature
-for(feature.idx in 6:dim(x.train)[2]){
-  idx <- which(is.na(x.train[,feature.idx]))
+for(feature.idx in 6:dim(treating)[2]){
+  idx <- which(is.na(treating[,feature.idx]))
   if(length(idx)>0){
     # loop through all the different na cases and map in the median for that location and month
     for(i in 1:length(idx)){
-      cat("feature: ", names(x.train)[feature.idx], "\ti: ", i, "\n")
-      x.train[idx,][i,feature.idx] <- na.pred[which(  (na.pred[,'city'] == x.train[idx,][i,'city']) & (na.pred[,'month'] == x.train[idx,][i,'month']) ), feature.idx]
+      cat("feature: ", names(treating)[feature.idx], "\ti: ", i, "\n")
+      treating[idx,][i,feature.idx] <- na.pred[which(  (na.pred[,'city'] == treating[idx,][i,'city']) & (na.pred[,'month'] == treating[idx,][i,'month']) ), feature.idx]
     }
   }
 }
@@ -94,6 +46,62 @@ for(feature.idx in 6:dim(x.train)[2]){
 #   2) fill in with aggregate data for a higher resolution. 
 #       Eg: aggregate on cit, year, month  and use this data where we can. 
 #       If there are any NA's still left, back up and aggregaat on city and moth
+
+# separate the training and testing sets now that we've treated the values
+ntrain <- dim(x.train)[1]
+x.train <- treating[1:ntrain,]
+test.set <- treating[(ntrain+1):(nrow(treating)),]
+
+
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+# TREATE THE VARIABLES - convert factors to numeric. necessary for some models
+#~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ntrain <- dim(x.train)[1]
+# features = names(treating)
+# for (f in features) {
+#   if (class(treating[[f]])=="factor") {
+#     #cat("VARIABLE : ",f,"\n")
+#     levels <- sort(unique(treating[[f]]))
+#     treating[[f]] <- as.integer(factor(treating[[f]], levels=levels))
+#   }
+# }
+
+
+
+
+
+
+# make some exploratory plots
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# par(mfrow = c(1, 2))
+# for(i in 1:dim(x.train)[2]){
+#   print(i)
+#   if(class(x.train[,i])!='factor'){
+#     plot(x.train[,i], main=names(x.train)[i])
+#     hist(x.train[,i], main=names(x.train)[i])
+#   }
+# }
+
+
+
+# # remove NA's in order to plot them  --- no
+# idx = which(unlist(lapply(x.train, class)) != "factor")
+# na.idx <- which(apply(x.train[,idx],1, function(y){return(any(is.na(y)))}))
+# nona <- x.train[-na.idx,]
+# tmp <- cor(nona[,idx])
+# heatmap(tmp)
+
+
+
+
 
 
 
@@ -149,9 +157,6 @@ for(feature.idx in 6:dim(x.train)[2]){
 mae <- function(actual, predicted){
   return(mean(abs(actual-predicted)) )
 }
-
-
-?glm.nb
 
 
 
@@ -261,12 +266,8 @@ rfFit
 plot(rfFit)
 
 
-user  system elapsed 
-63.006   1.446  65.699 
-
-1) Not running in parallel. Fix it «««««««««««««
-2) 
-
+test.set$total_cases <- NULL
+tmp <- predict(rfFit$finalModel, test.set)
 
 
 
