@@ -47,6 +47,7 @@ for(feature.idx in 6:dim(treating)[2]){
 #       Eg: aggregate on cit, year, month  and use this data where we can. 
 #       If there are any NA's still left, back up and aggregaat on city and moth
 
+treating$week_start_date <- as.numeric(treating$week_start_date)
 # separate the training and testing sets now that we've treated the values
 ntrain <- dim(x.train)[1]
 x.train <- treating[1:ntrain,]
@@ -151,17 +152,12 @@ test.set <- treating[(ntrain+1):(nrow(treating)),]
 
 
 #~~~~~~~~~~~~~
-# Model data glm.nb
+#  FUNCTIONS: Model data glm.nb
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Calculate MAE
 mae <- function(actual, predicted){
   return(mean(abs(actual-predicted)) )
 }
-
-
-
-
-
 
 
 # Perform cross validation on a negative binomial GLM
@@ -231,49 +227,64 @@ totalMAE <- rbind( totalMAE, data.frame(model="high_sig", rbind(model.err2x2, mo
 
 
 
+
+
+
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Adaboost
+# random forest
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 library(caret)
+# library(doMC)  # does not work for windows :(
+# registerDoMC(cores = 4)
+library(doParallel)
 
+
+# FUNCTION: MAE for caret
 caret.mae <- function(dat, lev=NULL, model=NULL){
   return(c(MAE=mean(abs(dat$obs-dat$pred))) )
 }
 
-
-
-model.formula <- as.formula("total_cases~.")
-
+# define the training parameters
 fitControl <- trainControl(## X-fold CV
-                            method = "repeatedcv",
-                            number = 5,
-                            ## repeated X times
-                            repeats = 5,
-                            summaryFunction = caret.mae,
-                            verboseIter = TRUE
-                            )
-tunegrid <- expand.grid(.mtry=c(5:15))
+  method = "repeatedcv",
+  number = 5,
+  ## repeated X times
+  repeats = 5,
+  summaryFunction = caret.mae,
+  verboseIter = TRUE
+)
 
+# defing what range of adjustable parameters to use
+tunegrid <- expand.grid(.mtry=c(5:20))
 
+## Begin model area
 set.seed(12345)
-library(doMC)
-registerDoMC(cores = 4)
-
 x.lab <- grep("total_cases", names(x.train) )
-# method ="rpart"
+
+# formula to train with                                 <<<<<<<<<<<<<<<<<<<<<<<<   FORMULA
+# model.formula <- as.formula("total_cases~.")  # doesn't work with RF
+
+
+# initialize the parallel packages for multicore mode
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+# train model
 system.time( rfFit <- train(x.train[,-x.lab], x.train[,x.lab], method = "rf", metric="MAE", maximize=F, trControl = fitControl, verbose = T, bag.fraction = 0.5, tuneGrid = tunegrid, allowParallel=TRUE) )
+# exit multicore mode
+stopCluster(cl)
+
 rfFit
 plot(rfFit)
 
 
-test.set$total_cases <- NULL
-tmp <- predict(rfFit$finalModel, test.set)
+tmp <- round(predict(rfFit, test.set))
+rfFit.pred <- data.frame(test.set[,c('city','year','weekofyear')], total_cases=tmp, stringsAsFactors = F)
 
 
 
-
-
-
+write.csv(rfFit.pred, 'submissions/rf5x5_lmae11_92547.csv', quote=F, row.names=F)
 
 
 
